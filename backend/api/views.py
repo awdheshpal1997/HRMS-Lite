@@ -1,11 +1,13 @@
 from datetime import date
 from django.db.models import Count, Q
+from django.db.utils import OperationalError, ProgrammingError
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from .models import Employee, Attendance
 from .serializers import EmployeeSerializer, AttendanceSerializer
+
 
 @api_view(['GET'])
 def api_root(request):
@@ -24,7 +26,19 @@ def api_root(request):
 
 @api_view(['GET'])
 def health_check(request):
+    try:
+        Employee.objects.count()
+    except (OperationalError, ProgrammingError) as exc:
+        return Response(
+            {
+                'status': 'degraded',
+                'detail': 'Database is unavailable or not migrated.',
+                'error': str(exc),
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
     return Response({'status': 'ok'})
+
 
 class EmployeeViewSet(viewsets.ModelViewSet):
     serializer_class = EmployeeSerializer
@@ -83,14 +97,23 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 
 @api_view(['GET'])
 def dashboard(request):
-    today = date.today()
-    total_employees = Employee.objects.count()
-    present_today = Attendance.objects.filter(
-        date=today, status=Attendance.Status.PRESENT
-    ).count()
-    absent_today = Attendance.objects.filter(
-        date=today, status=Attendance.Status.ABSENT
-    ).count()
+    try:
+        today = date.today()
+        total_employees = Employee.objects.count()
+        present_today = Attendance.objects.filter(
+            date=today, status=Attendance.Status.PRESENT
+        ).count()
+        absent_today = Attendance.objects.filter(
+            date=today, status=Attendance.Status.ABSENT
+        ).count()
+    except (OperationalError, ProgrammingError) as exc:
+        return Response(
+            {
+                'error': 'Database is unavailable or not migrated.',
+                'detail': str(exc),
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     return Response({
         'total_employees': total_employees,
